@@ -164,5 +164,27 @@
   - Algoritma mana yang paling efisien di jaringan dengan delay tinggi? Jelaskan.
     
 **Tugas 1**
+  - Mencoba mekanisme reliable data transfer tanpa adanya gangguan dengan melakukan download menggunakan curl alamat url `http://192.168.200.101:9999/tes1000.bin`, `http://192.168.200.101:9999/tes10000.bin`, dan `http://192.168.200.101:9999/tes5M.bin` pada console `netics-pc-desktop-1` menggunakan command
+    ```
+    curl -o /dev/null -s -w "size=%{size_download}B speed=%{speed_download}B/s total=%{time_total}s\n" http://192.168.200.101:9999/tes1000.bin
+    curl -o /dev/null -s -w "size=%{size_download}B speed=%{speed_download}B/s total=%{time_total}s\n" http://192.168.200.101:9999/tes10000.bin
+    curl -o /dev/null -s -w "size=%{size_download}B speed=%{speed_download}B/s total=%{time_total}s\n" http://192.168.200.101:9999/tes5M.bin
+    ```
+    <img width="990" height="691" alt="image" src="https://github.com/user-attachments/assets/fae98442-096a-4c78-9ff9-dd7e446bdf0d" />
+
+    Kemudian melakukan pengecekan pada wireshark yang ada dalam web server `netics-pc-desktop-1`. Hasil observasi yang saya temukan adalah sebagai berikut:
+    | No  | Parameter   | Hasil Observasi    |
+    | --- | ----------- | ------------------ | 
+    | 1   | Ukuran file | <img width="844" height="394" alt="image" src="https://github.com/user-attachments/assets/d06c8dac-9b31-43c0-8e43-93796b09454a" />|
+    | 2   | Jumlah total segmen TCP | <img width="994" height="586" alt="image" src="https://github.com/user-attachments/assets/31d46b88-2ca7-4ff5-8fc5-a33d97a3232e" />|
+    | 3   | RTT rata-rata | <img width="693" height="498" alt="image" src="https://github.com/user-attachments/assets/3bffc2c9-f2a2-45b8-8a61-5c1774cd52b2" /> <img width="985" height="456" alt="image" src="https://github.com/user-attachments/assets/b9d75b21-9800-4c05-bd90-2f47d6224794" />|
+    | 4   | Throughput(curl) | <img width="850" height="190" alt="image" src="https://github.com/user-attachments/assets/dae75721-7dc0-4102-b204-b1e4e749cb30" />|
+    | 5   | Waktu total transfer(curl) | <img width="850" height="190" alt="image" src="https://github.com/user-attachments/assets/a19126ab-eb81-4b0a-bbde-d7734abdfac5" />|
+    | 6   | Sequence number awal klien | <img width="995" height="476" alt="image" src="https://github.com/user-attachments/assets/932301b6-088b-4ccd-840d-08ac0c1b32d7" />|
+    | 7   | Sequence number awal server | <img width="992" height="391" alt="image" src="https://github.com/user-attachments/assets/18e8ceb2-b52a-462c-9714-a316d69fbde5" />|
+    | 8   | Jumlah ACK yang dikirim klien | <img width="997" height="447" alt="image" src="https://github.com/user-attachments/assets/eb0b997a-8dd3-4493-bbee-f18a7b8272c4" />|
+    | 9   | Pola pertumbuhan SEQ-ACK| <img width="686" height="353" alt="image" src="https://github.com/user-attachments/assets/67a91d3d-a8e2-4328-84b7-818e45759f63" />|
+    | 10   | Status retransmission | <img width="880" height="275" alt="image" src="https://github.com/user-attachments/assets/dadcc923-f60a-44ee-bac6-8e2b449a871e" /><img width="985" height="236" alt="image" src="https://github.com/user-attachments/assets/74631059-5eba-4b01-a88c-8c1b0d20e3ae" />
+|
 
 **Tugas 2**

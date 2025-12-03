@@ -184,7 +184,37 @@
     | 7   | Sequence number awal server | <img width="992" height="391" alt="image" src="https://github.com/user-attachments/assets/18e8ceb2-b52a-462c-9714-a316d69fbde5" />|
     | 8   | Jumlah ACK yang dikirim klien | <img width="997" height="447" alt="image" src="https://github.com/user-attachments/assets/eb0b997a-8dd3-4493-bbee-f18a7b8272c4" />|
     | 9   | Pola pertumbuhan SEQ-ACK| <img width="686" height="353" alt="image" src="https://github.com/user-attachments/assets/67a91d3d-a8e2-4328-84b7-818e45759f63" />|
-    | 10   | Status retransmission | <img width="880" height="275" alt="image" src="https://github.com/user-attachments/assets/dadcc923-f60a-44ee-bac6-8e2b449a871e" /><img width="985" height="236" alt="image" src="https://github.com/user-attachments/assets/74631059-5eba-4b01-a88c-8c1b0d20e3ae" />
-|
+    | 10   | Status retransmission | <img width="880" height="275" alt="image" src="https://github.com/user-attachments/assets/dadcc923-f60a-44ee-bac6-8e2b449a871e" /><img width="985" height="236" alt="image" src="https://github.com/user-attachments/assets/74631059-5eba-4b01-a88c-8c1b0d20e3ae" />|
 
 **Tugas 2**
+- Mencoba mekanisme TCP congestion control "cubic" dengan adanya gangguan 1% packet loss dan latency 100ms dengan melakukan simulasi packet loss pada bridge `netics-pc-1` dengan ukuran file 1000bytes, 10000bytes, dan 5M bytes menggunakan command berikut:
+    ```
+    tc qdisc del dev eth0 root
+    tc qdisc del dev eth1 root
+    tc qdisc add dev eth0 root handle 1: tbf rate 2mbit burst 32kbit latency 100ms 
+    tc qdisc add dev eth0 parent 1:1 handle 10: netem delay 100ms loss 1%
+    tc qdisc add dev eth1 root handle 1: tbf rate 2mbit burst 32kbit latency 100ms
+    tc qdisc add dev eth1 parent 1:1 handle 10: netem delay 100ms loss 1%
+    ```
+    Selanjutnya melakukan setup mekanisme TCP congestion control "cubic" dengan melakukan download menggunakan curl alamat url `http://192.168.200.101:9999/tes5M.bin` pada console `netics-pc-desktop-1` menggunakan command
+    ```
+    sysctl -w net.ipv4.tcp_congestion_control=cubic
+    curl -o /dev/null -s -w "size=%{size_download}B speed=%{speed_download}B/s total=%{time_total}s\n" http://192.168.200.101:9999/tes5M.bin
+    ```
+    <img width="741" height="229" alt="image" src="https://github.com/user-attachments/assets/a63ca973-9e5f-461c-99c9-38515ee7ded4" />
+
+    <img width="1041" height="524" alt="image" src="https://github.com/user-attachments/assets/eee74021-bcf4-4d73-b510-9ad98113b8c2" />
+    
+    Kemudian melakukan pengecekan pada wireshark yang ada dalam web server `netics-pc-desktop-1`. Hasil observasi yang saya temukan adalah sebagai berikut:
+    | No  | Parameter   | Hasil Observasi    |
+    | --- | ----------- | ------------------ | 
+    | 1   | RTT rata-rata | <img width="1042" height="605" alt="image" src="https://github.com/user-attachments/assets/4d6371d3-57ed-4307-b828-79dc38b3ef13" /><img width="1031" height="601" alt="image" src="https://github.com/user-attachments/assets/6acd9966-7750-4015-a9f7-45e980c9bb6a" /><img width="1069" height="782" alt="image" src="https://github.com/user-attachments/assets/b3715f9b-8c08-4b14-abd2-3bda0b19f89b" />|
+    | 2   | RTT maksimum | <img width="1031" height="601" alt="image" src="https://github.com/user-attachments/assets/fae4acea-fa96-42ed-bb0e-f3ea149ad5b0" />|
+    | 3   | Throughput(curl) | <img width="1041" height="642" alt="image" src="https://github.com/user-attachments/assets/6068dcae-a34f-43e4-9beb-af72c0bc2e11" /><img width="688" height="500" alt="image" src="https://github.com/user-attachments/assets/166cf176-cb69-4bf4-a42c-caaedc7c7a76" />|
+    | 4   | Waktu transfer total | <img width="1041" height="642" alt="image" src="https://github.com/user-attachments/assets/cf29d090-ce73-4309-b1b1-81f9903df884" />|
+    | 5   | Jumlah retransmission | <img width="1043" height="609" alt="image" src="https://github.com/user-attachments/assets/3c93af15-2b1d-4191-85f0-31b3a948fe3c" />|
+    | 6   | Jumlah dupACK | <img width="1020" height="606" alt="image" src="https://github.com/user-attachments/assets/0407b83f-10ee-48b7-9c74-4655e0fd0faf" />|
+    | 7   | Pola cwnd (awal-akhir) | <img width="998" height="702" alt="image" src="https://github.com/user-attachments/assets/8f15ee9a-d5cf-405d-b58e-7dec9a31f227" />|
+    | 8   | Nilai rwnd rata-rata | <img width="982" height="622" alt="image" src="https://github.com/user-attachments/assets/133ec2cb-58af-44ab-ae3a-97aec946df88" /><img width="700" height="500" alt="image" src="https://github.com/user-attachments/assets/0582abc6-9e6e-47e5-8850-0297f8768839" />****<img width="957" height="575" alt="image" src="https://github.com/user-attachments/assets/fbe3d796-d38a-4783-8355-71eaba8abfdb" />|
+    | 9   | Stabilitas throughput(grafik wireshark)| <img width="688" height="500" alt="image" src="https://github.com/user-attachments/assets/23649581-4e1a-429c-a714-befbd92c587e" /><img width="988" height="702" alt="image" src="https://github.com/user-attachments/assets/2e3de61d-c4a9-49c8-83a3-82b757d0b169" />|
+    | 10   | Efisiensi(Throughput ÷ RTT) | <img width="981" height="615" alt="image" src="https://github.com/user-attachments/assets/a9da6ed8-4b02-4297-8551-b911dfc98dd7" /><img width="687" height="493" alt="image" src="https://github.com/user-attachments/assets/30a6a744-2e0b-4c5c-80ad-b529f3f81c98" /> <img width="1041" height="642" alt="image" src="https://github.com/user-attachments/assets/6068dcae-a34f-43e4-9beb-af72c0bc2e11" /><img width="688" height="500" alt="image" src="https://github.com/user-attachments/assets/166cf176-cb69-4bf4-a42c-caaedc7c7a76" />|

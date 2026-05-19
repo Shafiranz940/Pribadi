@@ -1,7 +1,9 @@
+// Interface Engine
 interface Engine {
     void start();
 }
 
+// Concrete Class
 class ModernEngine implements Engine {
 
     @Override
@@ -10,10 +12,13 @@ class ModernEngine implements Engine {
     }
 }
 
+// Car class
 class Car {
 
+    // Dependency
     private Engine engine;
 
+    // Constructor Injection
     public Car(Engine engine) {
         this.engine = engine;
     }
@@ -24,22 +29,28 @@ class Car {
     }
 }
 
+// Injector class
 class Injector {
 
     public static Car inject() {
 
+        // Membuat object ModernEngine
         Engine engine = new ModernEngine();
 
+        // Menyuntikkan engine ke Car
         return new Car(engine);
     }
 }
 
+// Main class
 public class Main {
 
     public static void main(String[] args) {
 
+        // Injector membuat dan menghubungkan object
         Car car = Injector.inject();
 
+        // Menjalankan mobil
         car.drive();
     }
 }

@@ -33,8 +33,8 @@
     attribute vec2 a_position;
     attribute vec4 a_color;
     attribute float a_size;
-    uniform vec2 u_scale;     // koreksi aspect ratio
-    uniform vec2 u_offset;    // translasi (animasi melayang & bayangan)
+    uniform vec2 u_scale;    
+    uniform vec2 u_offset;   
     uniform float u_dpr;
     varying vec4 v_color;
     void main() {
@@ -45,10 +45,10 @@
 
   const FS = `
     precision mediump float;
-    uniform float u_flat;       // 1 = pakai warna tunggal (bayangan / outline)
+    uniform float u_flat;      
     uniform vec4 u_flatColor;
-    uniform float u_round;      // 1 = titik dibuat bulat & lembut (bintang)
-    uniform float u_alpha;      // transparansi global (untuk fade)
+    uniform float u_round;      
+    uniform float u_alpha;      
     varying vec4 v_color;
     void main() {
       vec4 c = mix(v_color, u_flatColor, u_flat);
@@ -59,7 +59,7 @@
         c.a *= (1.0 - d * d);
         c.rgb += (1.0 - d) * 0.3;
       }
-      gl_FragColor = vec4(c.rgb * c.a, c.a);   // premultiplied alpha
+      gl_FragColor = vec4(c.rgb * c.a, c.a);  
     }`;
 
   function compile(type, src) {

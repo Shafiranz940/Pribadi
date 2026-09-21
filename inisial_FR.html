@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inisial FR - WebGL</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #B0183D; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; }
+  .cap {
+    position: fixed; left: 0; right: 0; bottom: 10px; text-align: center;
+    font: 12px/1.4 system-ui, sans-serif; color: rgba(252, 237, 216, 0.85);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="cap">Klik atau ketuk layar untuk mengulang animasi menulis</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------------------------------------------------------------
+     1. Inisialisasi WebGL
+  --------------------------------------------------------------- */
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
+  if (!gl) {
+    document.body.innerHTML = '<p style="color:#fff;padding:2rem;font-family:sans-serif">Browser Anda tidak mendukung WebGL.</p>';
+    return;
+  }
+
+  const VS = `
+    attribute vec2 a_position;
+    attribute vec4 a_color;
+    attribute float a_size;
+    uniform vec2 u_scale;     // koreksi aspect ratio
+    uniform vec2 u_offset;    // translasi (animasi melayang & bayangan)
+    uniform float u_dpr;
+    varying vec4 v_color;
+    void main() {
+      gl_Position = vec4((a_position + u_offset) * u_scale, 0.0, 1.0);
+      gl_PointSize = a_size * u_dpr;
+      v_color = a_color;
+    }`;
+
+  const FS = `
+    precision mediump float;
+    uniform float u_flat;       // 1 = pakai warna tunggal (bayangan / outline)
+    uniform vec4 u_flatColor;
+    uniform float u_round;      // 1 = titik dibuat bulat & lembut (bintang)
+    uniform float u_alpha;      // transparansi global (untuk fade)
+    varying vec4 v_color;
+    void main() {
+      vec4 c = mix(v_color, u_flatColor, u_flat);
+      c.a *= u_alpha;
+      if (u_round > 0.5) {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        if (d > 1.0) discard;
+        c.a *= (1.0 - d * d);
+        c.rgb += (1.0 - d) * 0.3;
+      }
+      gl_FragColor = vec4(c.rgb * c.a, c.a);   // premultiplied alpha
+    }`;
+
+  function compile(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, compile(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+
+  const uScale = gl.getUniformLocation(prog, 'u_scale');
+  const uOffset = gl.getUniformLocation(prog, 'u_offset');
+  const uDpr = gl.getUniformLocation(prog, 'u_dpr');
+  const uFlat = gl.getUniformLocation(prog, 'u_flat');
+  const uFlatColor = gl.getUniformLocation(prog, 'u_flatColor');
+  const uRound = gl.getUniformLocation(prog, 'u_round');
+  const uAlpha = gl.getUniformLocation(prog, 'u_alpha');
+
+  // Layout vertex: x, y, r, g, b, a, size  (7 float)
+  const STRIDE = 7;
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  const F = Float32Array.BYTES_PER_ELEMENT;
+  const aPos = gl.getAttribLocation(prog, 'a_position');
+  const aCol = gl.getAttribLocation(prog, 'a_color');
+  const aSize = gl.getAttribLocation(prog, 'a_size');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, STRIDE * F, 0);
+  gl.enableVertexAttribArray(aCol);
+  gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, STRIDE * F, 2 * F);
+  gl.enableVertexAttribArray(aSize);
+  gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, STRIDE * F, 6 * F);
+
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+  /* ---------------------------------------------------------------
+     2. Ukuran layar
+  --------------------------------------------------------------- */
+  let dpr = 1, sx = 1, sy = 1;
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = window.innerWidth, h = window.innerHeight;
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    const aspect = w / h;
+    sx = aspect > 1 ? 1 / aspect : 1;
+    sy = aspect > 1 ? 1 : aspect;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  /* ---------------------------------------------------------------
+     3. Palet "Coral Wave" (dipakai untuk huruf DAN latar belakang)
+  --------------------------------------------------------------- */
+  function hex(h) {
+    return [parseInt(h.slice(1, 3), 16) / 255,
+            parseInt(h.slice(3, 5), 16) / 255,
+            parseInt(h.slice(5, 7), 16) / 255];
+  }
+  const C = {
+    cream:   hex('#FCEDD8'),
+    yellow:  hex('#FFD464'),
+    coral:   hex('#FF5E5E'),
+    rose:    hex('#E23C64'),
+    crimson: hex('#B0183D')
+  };
+
+  // Gradasi huruf: krem -> kuning -> koral -> mawar -> merah tua
+  const LSTOPS = [C.cream, C.yellow, C.coral, C.rose, C.crimson];
+  function palette(s) {
+    s = s - Math.floor(s);
+    const tri = s < 0.5 ? s * 2 : (1 - s) * 2;      // bolak-balik 0..1..0
+    const n = LSTOPS.length - 1;
+    const p = tri * n;
+    const i = Math.min(Math.floor(p), n - 1);
+    let f = p - i;
+    f = f * f * (3 - 2 * f);
+    const a = LSTOPS[i], b = LSTOPS[i + 1];
+    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+  }
+  // posisi kilau yang menyapu huruf setelah selesai ditulis (-10 = mati)
+  let shine = -10;
+  const SHINE = [1.0, 0.98, 0.92];
+  // atas huruf = krem/kuning, bawah = koral/mawar, sedikit bergelombang
+  function colorAt(x, y, t) {
+    const c = palette((0.6 - y) / 1.2 * 0.42 + x * 0.05 + 0.03 * Math.sin(t * 0.8 + x * 2 + y * 2));
+    const d = (x + 0.35 * y - shine) / 0.15;
+    const k = 0.6 * Math.exp(-d * d);
+    if (k < 0.001) return c;
+    return [c[0] + (SHINE[0] - c[0]) * k, c[1] + (SHINE[1] - c[1]) * k, c[2] + (SHINE[2] - c[2]) * k];
+  }
+  function vtx(a, x, y, t) {
+    const c = colorAt(x, y, t);
+    a.push(x, y, c[0], c[1], c[2], 1, 1);
+  }
+
+  /* ---------------------------------------------------------------
+     4. Helper menggambar
+  --------------------------------------------------------------- */
+  function draw(mode, arr, o) {
+    o = o || {};
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(arr), gl.DYNAMIC_DRAW);
+    gl.uniform2f(uOffset, o.ox || 0, o.oy || 0);
+    gl.uniform2f(uScale, o.full ? 1 : sx, o.full ? 1 : sy);
+    gl.uniform1f(uFlat, o.flat ? 1 : 0);
+    gl.uniform4fv(uFlatColor, o.flat || [0, 0, 0, 0]);
+    gl.uniform1f(uRound, o.round ? 1 : 0);
+    gl.uniform1f(uAlpha, o.alpha === undefined ? 1 : o.alpha);
+    gl.drawArrays(mode, 0, arr.length / STRIDE);
+  }
+
+  /* ---------------------------------------------------------------
+     5. Latar belakang: mesh gradient dari palet yang sama
+        (TRIANGLES, warna tiap titik = campuran beberapa "blob" warna)
+  --------------------------------------------------------------- */
+  const BLOBS = [
+    { x: -1.05, y:  0.25, c: C.yellow,  s: 0.60, p: 0.0 },
+    { x: -0.85, y:  0.95, c: C.coral,   s: 0.60, p: 1.3 },
+    { x:  0.35, y:  0.85, c: C.crimson, s: 0.55, p: 2.1 },
+    { x:  1.05, y:  0.30, c: C.yellow,  s: 0.45, p: 3.0 },
+    { x: -1.00, y: -0.60, c: C.cream,   s: 0.50, p: 4.2 },
+    { x: -0.35, y: -0.85, c: C.crimson, s: 0.50, p: 5.0 },
+    { x:  0.55, y: -0.75, c: C.coral,   s: 0.65, p: 0.7 },
+    { x:  0.00, y:  0.10, c: C.rose,    s: 0.75, p: 2.6 }
+  ];
+  const GRID = 32;
+
+  function bgColor(x, y, t) {
+    let r = C.coral[0] * 0.02, g = C.coral[1] * 0.02, b = C.coral[2] * 0.02, wt = 0.02;
+    for (const bl of BLOBS) {
+      const bx = bl.x + 0.10 * Math.sin(t * 0.30 + bl.p);
+      const by = bl.y + 0.12 * Math.cos(t * 0.25 + bl.p);
+      const dx = x - bx, dy = y - by;
+      const w = Math.exp(-(dx * dx + dy * dy) / (bl.s * bl.s));
+      r += bl.c[0] * w; g += bl.c[1] * w; b += bl.c[2] * w; wt += w;
+    }
+    return [r / wt, g / wt, b / wt];
+  }
+
+  function buildBackground(t) {
+    const n = GRID + 1, cols = new Array(n * n);
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = -1 + 2 * i / GRID, y = -1 + 2 * j / GRID;
+        cols[j * n + i] = [x, y].concat(bgColor(x, y, t));
+      }
+    }
+    const a = [];
+    const put = (v) => a.push(v[0], v[1], v[2], v[3], v[4], 1, 1);
+    for (let j = 0; j < GRID; j++) {
+      for (let i = 0; i < GRID; i++) {
+        const p00 = cols[j * n + i], p10 = cols[j * n + i + 1];
+        const p01 = cols[(j + 1) * n + i], p11 = cols[(j + 1) * n + i + 1];
+        put(p00); put(p10); put(p01);
+        put(p10); put(p11); put(p01);
+      }
+    }
+    return a;
+  }
+
+  /* ---------------------------------------------------------------
+     6. Geometri huruf (TRIANGLE_STRIP, dibagi banyak segmen
+        supaya gradasi warna per-vertex terlihat halus)
+  --------------------------------------------------------------- */
+  // Setiap goresan punya progres p (0..1): titik-titik di luar p ditumpuk
+  // di ujung goresan (segitiga tak berluas), sehingga huruf "tertulis" bertahap.
+  // rev = arah menulis dibalik (mis. atas -> bawah).
+  function stripRect(x1, x2, y1, y2, n, t, p, rev) {
+    const a = [];
+    const alongY = Math.abs(y2 - y1) >= Math.abs(x2 - x1);
+    if (rev) {
+      if (alongY) { const k = y1; y1 = y2; y2 = k; }
+      else { const k = x1; x1 = x2; x2 = k; }
+    }
+    let tip = [x1, y1];
+    for (let i = 0; i <= n; i++) {
+      const f = Math.min(i / n, p);
+      if (alongY) {
+        const y = y1 + (y2 - y1) * f;
+        vtx(a, x1, y, t); vtx(a, x2, y, t);
+        tip = [(x1 + x2) / 2, y];
+      } else {
+        const x = x1 + (x2 - x1) * f;
+        vtx(a, x, y1, t); vtx(a, x, y2, t);
+        tip = [x, (y1 + y2) / 2];
+      }
+    }
+    return { v: a, tip: tip, p: p };
+  }
+
+  // Kaki diagonal huruf R (ditulis dari atas ke bawah)
+  function stripLeg(t, p) {
+    const a = [], n = 18, yTop = 0.03, yBot = -0.6;
+    let tip = [0.5, yTop];
+    for (let i = 0; i <= n; i++) {
+      const y = yTop + (yBot - yTop) * Math.min(i / n, p);
+      vtx(a, 0.4 - y / 3, y, t);
+      vtx(a, 0.6 - y / 3, y, t);
+      tip = [0.5 - y / 3, y];
+    }
+    return { v: a, tip: tip, p: p };
+  }
+
+  // Lengkung (bowl) huruf R: setengah cincin, ditulis searah jarum jam
+  const CX = 0.5, CY = 0.3, RO = 0.3, RI = 0.1;
+  function stripArc(t, p) {
+    const a = [], seg = 40;
+    let tip = [CX, CY + RO];
+    for (let i = 0; i <= seg; i++) {
+      const ang = Math.PI / 2 - Math.PI * Math.min(i / seg, p);
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      vtx(a, CX + RO * c, CY + RO * sn, t);
+      vtx(a, CX + RI * c, CY + RI * sn, t);
+      tip = [CX + (RO + RI) / 2 * c, CY + (RO + RI) / 2 * sn];
+    }
+    return { v: a, tip: tip, p: p };
+  }
+
+  /* Jadwal menulis: [mulai (detik), durasi (detik)] untuk tiap goresan */
+  const T_F = [[0.0, 0.9], [0.9, 0.6], [1.5, 0.5]];
+  const T_R = [[2.1, 0.9], [3.0, 0.5], [3.5, 0.7], [4.2, 0.4], [4.6, 0.7]];
+  const END_WRITE = 5.3;    // semua goresan selesai
+  const CYCLE = 10.8;       // panjang satu siklus sebelum mengulang
+
+  function strokeProgress(lt, sch) {
+    const q = Math.min(1, Math.max(0, (lt - sch[0]) / sch[1]));
+    return 0.5 - 0.5 * Math.cos(Math.PI * q);      // ease in-out
+  }
+
+  function buildF(t, lt) {
+    return [
+      stripRect(-0.80, -0.60, -0.60, 0.60, 24, t, strokeProgress(lt, T_F[0]), true),   // batang tegak (atas -> bawah)
+      stripRect(-0.80, -0.15,  0.40, 0.60, 14, t, strokeProgress(lt, T_F[1]), false),  // lengan atas (kiri -> kanan)
+      stripRect(-0.80, -0.25,  0.00, 0.22, 12, t, strokeProgress(lt, T_F[2]), false)   // lengan tengah
+    ];
+  }
+  function buildR(t, lt) {
+    return [
+      stripRect(0.10, 0.30, -0.60, 0.60, 24, t, strokeProgress(lt, T_R[0]), true),     // batang tegak
+      stripRect(0.10, 0.50,  0.40, 0.60, 10, t, strokeProgress(lt, T_R[1]), false),    // sisi atas bowl
+      stripArc(t, strokeProgress(lt, T_R[2])),                                         // lengkung bowl
+      stripRect(0.10, 0.50,  0.00, 0.20, 10, t, strokeProgress(lt, T_R[3]), true),     // sisi bawah bowl (kanan -> kiri)
+      stripLeg(t, strokeProgress(lt, T_R[4]))                                          // kaki diagonal
+    ];
+  }
+
+  /* ---------------------------------------------------------------
+     7. Garis tepi huruf (LINE_LOOP), dihitung sekali saja
+  --------------------------------------------------------------- */
+  const F_OUTLINE = [
+    [-0.80, -0.60], [-0.60, -0.60], [-0.60, 0.00], [-0.25, 0.00],
+    [-0.25,  0.22], [-0.60,  0.22], [-0.60, 0.40], [-0.15, 0.40],
+    [-0.15,  0.60], [-0.80,  0.60]
+  ];
+
+  // titik potong sisi kanan kaki R dengan lengkung luar bowl
+  const iy = 0.3 - Math.sqrt(0.09 - 0.009);
+  const ix = 0.6 - iy / 3;
+  const a0 = Math.atan2(iy - CY, ix - CX);
+
+  const R_OUTER = [[0.10, -0.60], [0.30, -0.60], [0.30, 0.00], [0.40, 0.00],
+                   [0.60, -0.60], [0.80, -0.60], [ix, iy]];
+  for (let i = 1; i <= 40; i++) {
+    const ang = a0 + (Math.PI / 2 - a0) * (i / 40);
+    R_OUTER.push([CX + RO * Math.cos(ang), CY + RO * Math.sin(ang)]);
+  }
+  R_OUTER.push([0.10, 0.60]);
+
+  const R_HOLE = [[0.30, 0.20], [0.50, 0.20]];
+  for (let i = 1; i <= 24; i++) {
+    const ang = -Math.PI / 2 + Math.PI * (i / 24);
+    R_HOLE.push([CX + RI * Math.cos(ang), CY + RI * Math.sin(ang)]);
+  }
+  R_HOLE.push([0.30, 0.40]);
+
+  function loopVerts(pts) {
+    const a = [];
+    for (const p of pts) a.push(p[0], p[1], 1, 1, 1, 1, 1);
+    return a;
+  }
+  const OUTLINES_F = [loopVerts(F_OUTLINE)];
+  const OUTLINES_R = [loopVerts(R_OUTER), loopVerts(R_HOLE)];
+  const THICK = [[0, 0], [0.003, 0], [-0.003, 0], [0, 0.003], [0, -0.003]];
+
+  /* ---------------------------------------------------------------
+     8. Elemen dekorasi
+  --------------------------------------------------------------- */
+  // Cahaya lembut: TRIANGLE_FAN
+  function glow(cx, cy, r, rgb, alpha) {
+    const a = [cx, cy, rgb[0], rgb[1], rgb[2], alpha, 1];
+    const n = 48;
+    for (let i = 0; i <= n; i++) {
+      const ang = (i / n) * Math.PI * 2;
+      a.push(cx + r * Math.cos(ang), cy + r * Math.sin(ang), rgb[0], rgb[1], rgb[2], 0, 1);
+    }
+    return a;
+  }
+
+  // Bingkai: LINE_LOOP mengikuti keliling persegi panjang
+  function rectLoop(x1, y1, x2, y2) {
+    return [x1, y1, 1, 1, 1, 1, 1,  x2, y1, 1, 1, 1, 1, 1,
+            x2, y2, 1, 1, 1, 1, 1,  x1, y2, 1, 1, 1, 1, 1];
+  }
+
+  // Garis putus-putus: LINES
+  function dashes() {
+    const a = [];
+    for (let i = 0; i < 18; i++) {
+      const x0 = -0.60 + i * 0.07;
+      a.push(x0, -0.72, 1, 1, 1, 1, 1,  x0 + 0.04, -0.72, 1, 1, 1, 1, 1);
+    }
+    return a;
+  }
+
+  // Bintang: POINTS (warna krem, kuning, atau koral dari palet)
+  const STAR_COLORS = [C.cream, C.yellow, C.cream, C.coral];
+  const stars = [];
+  for (let i = 0; i < 90; i++) {
+    stars.push({
+      x: Math.random() * 2 - 1, y: Math.random() * 2 - 1,
+      s: 2 + Math.random() * 5, p: Math.random() * 6.28,
+      c: STAR_COLORS[Math.floor(Math.random() * STAR_COLORS.length)]
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     9. Render loop
+  --------------------------------------------------------------- */
+  const SHADOW = [0.30, 0.02, 0.10, 0.55];                    // merah tua pekat
+  const FRAME1 = [C.cream[0], C.cream[1], C.cream[2], 0.85];
+  const FRAME2 = [C.cream[0], C.cream[1], C.cream[2], 0.35];
+  const DASH = [C.yellow[0], C.yellow[1], C.yellow[2], 0.95];
+
+  // waktu animasi menulis dihitung dari t0; klik / ketuk layar untuk mengulang
+  let t0 = performance.now() / 1000;
+  canvas.addEventListener('pointerdown', function () { t0 = performance.now() / 1000; });
+  function smooth(x) { x = Math.min(1, Math.max(0, x)); return x * x * (3 - 2 * x); }
+
+  function frame(ms) {
+    const t = ms / 1000;
+    let lt = t - t0;
+    if (lt < 0) lt = 0;
+    lt = lt % CYCLE;
+
+    gl.clearColor(C.crimson[0], C.crimson[1], C.crimson[2], 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(uDpr, dpr);
+
+    // latar mesh gradient
+    draw(gl.TRIANGLES, buildBackground(t), { full: true });
+
+    // cahaya di belakang huruf
+    const pulse = 0.26 + 0.06 * Math.sin(t * 1.4);
+    draw(gl.TRIANGLE_FAN, glow(-0.45, 0.0, 0.95, C.yellow, pulse));
+    draw(gl.TRIANGLE_FAN, glow(0.45, 0.0, 0.95, C.cream, pulse * 0.7));
+
+    // bingkai
+    draw(gl.LINE_LOOP, rectLoop(-0.92, -0.78, 0.92, 0.78), { flat: FRAME1 });
+    draw(gl.LINE_LOOP, rectLoop(-0.89, -0.75, 0.89, 0.75), { flat: FRAME2 });
+
+    // garis putus-putus di bawah huruf
+    draw(gl.LINES, dashes(), { flat: DASH });
+
+    // bintang berkelap-kelip
+    const pts = [];
+    for (const st of stars) {
+      const alpha = 0.25 + 0.75 * (0.5 + 0.5 * Math.sin(t * 2 + st.p));
+      pts.push(st.x, st.y, st.c[0], st.c[1], st.c[2], alpha, st.s);
+    }
+    draw(gl.POINTS, pts, { full: true, round: true });
+
+    // ---- tahap animasi huruf ----
+    // kilau menyapu huruf setelah selesai ditulis
+    const sp = (lt - 5.4) / 1.4;
+    shine = (sp >= 0 && sp <= 1) ? -1.3 + 2.6 * sp : -10;
+    // huruf memudar sebelum siklus berulang
+    const letterAlpha = lt < 9.4 ? 1 : Math.max(0, 1 - (lt - 9.4) / 0.9);
+    // gerak melayang baru mulai setelah selesai ditulis
+    const amp = 0.018 * smooth((lt - END_WRITE) / 1.2);
+    const fy = amp * Math.sin(t * 1.6);
+    const ry = amp * Math.sin(t * 1.6 + Math.PI);
+
+    const Fp = buildF(t, lt);
+    const Rp = buildR(t, lt);
+
+    // bayangan
+    for (const g of Fp) if (g.p > 0) draw(gl.TRIANGLE_STRIP, g.v, { ox: 0.03, oy: fy - 0.03, flat: SHADOW, alpha: letterAlpha });
+    for (const g of Rp) if (g.p > 0) draw(gl.TRIANGLE_STRIP, g.v, { ox: 0.03, oy: ry - 0.03, flat: SHADOW, alpha: letterAlpha });
+
+    // huruf berwarna gradasi
+    for (const g of Fp) if (g.p > 0) draw(gl.TRIANGLE_STRIP, g.v, { oy: fy, alpha: letterAlpha });
+    for (const g of Rp) if (g.p > 0) draw(gl.TRIANGLE_STRIP, g.v, { oy: ry, alpha: letterAlpha });
+
+    // garis tepi krem muncul perlahan setelah selesai ditulis
+    const oa = smooth((lt - END_WRITE) / 0.6) * letterAlpha;
+    if (oa > 0.01) {
+      const oc = [C.cream[0], C.cream[1], C.cream[2], 0.95 * oa];
+      for (const d of THICK) {
+        for (const l of OUTLINES_F) draw(gl.LINE_LOOP, l, { ox: d[0], oy: fy + d[1], flat: oc });
+        for (const l of OUTLINES_R) draw(gl.LINE_LOOP, l, { ox: d[0], oy: ry + d[1], flat: oc });
+      }
+    }
+
+    // ujung "pena" yang bercahaya di goresan yang sedang ditulis
+    const tips = [];
+    const addTips = function (list, oy) {
+      for (const g of list) {
+        if (g.p > 0 && g.p < 1) {
+          tips.push(g.tip[0], g.tip[1] + oy, C.yellow[0], C.yellow[1], C.yellow[2], 0.35, 30);
+          tips.push(g.tip[0], g.tip[1] + oy, 1.0, 0.97, 0.90, 1.0, 14);
+        }
+      }
+    };
+    addTips(Fp, fy);
+    addTips(Rp, ry);
+    if (tips.length) draw(gl.POINTS, tips, { round: true });
+
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
